@@ -30,7 +30,7 @@ def load_data():
     df_311['year'] = df_311['created_date'].dt.year
 
     # Filter df_311 to only include specific zip codes
-    zip_codes_to_keep = ['10002', '11235', '11215', '11368', '11214']
+    zip_codes_to_keep = ['10002', '11235', '11215', '11368', '11214','11361']
     df_311 = df_311[df_311['incident_zip'].isin(zip_codes_to_keep)]
 
     # Add park name column based on incident_zip
@@ -39,27 +39,78 @@ def load_data():
         '11235': 'Homecrest Playground',
         '11215': 'Gowanus waterfront  former salt lot',
         '11368': 'Flushing Meadows Corona Park Flushing Bay Promenade',
-        '11214': 'Bensonhurst Park'
+        '11214': 'Bensonhurst Park',
+        '11361': 'Chroceron Park'    
     }
     df_311['park_name'] = df_311['incident_zip'].map(zip_to_park)
 
-    # Rename columns for better readability
+    # Drop columns
+    columns_to_drop = [
+        'location_type', 'street_name', 'cross_street_1', 'cross_street_2',
+        'intersection_street_1', 'intersection_street_2', 'address_type',
+        'landmark', 'x_coordinate_state_plane', 'y_coordinate_state_plane',
+        'y_coordinate_state plane', 'latitude', 'longitude', 'location'
+    ]
+    df_311 = df_311.drop(columns=columns_to_drop, errors='ignore')
+
+    # Rename columns
     df_311 = df_311.rename(columns={
         'descriptor': 'Complaint Type',
-        'descriptor_2': 'Restroom Element'
+        'descriptor_2': 'Restroom Element',
+        'unique_key': 'Unique Key',
+        'created_date': 'Created Date',
+        'closed_date': 'Closed Date',
+        'agency': 'Agency',
+        'agency_name': 'Agency Name',
+        'complaint_type': 'Complaint',
+        'incident_zip': 'Incident Zip',
+        'incident_address': 'Incident Address',
+        'city': 'City',
+        'status': 'Status',
+        'resolution_description': 'Resolution Description',
+        'resolution_action_updated_date': 'Resolution Action Updated Date',
+        'community_board': 'Community Board',
+        'council_district': 'Council District',
+        'police_precinct': 'Police Precinct',
+        'bbl': 'BBL',
+        'borough': 'Borough',
+        'open_data_channel_type': 'Open Data Channel Type',
+        'park_name': 'Park Name'
     })
+
+    # Reorder columns
+    column_order = [
+        'Unique Key', 'Park Name', 'Created Date', 'Closed Date', 'Complaint Type', 'Restroom Element',  'Status',
+        'Resolution Description', 'Resolution Action Updated Date', 'Open Data Channel Type',
+        'Community Board', 'Council District', 'Police Precinct',
+        'Incident Zip', 'Incident Address', 'City', 'BBL', 'Borough', 
+        'Agency', 'Agency Name', 'Complaint', 'day', 'day_of_week', 'month', 'year'
+    ]
+    df_311 = df_311[column_order]
 
     return df_311, df_restrooms
 
 # Load the data
 df_311, df_restrooms = load_data()
 
-st.title("NYC Modular Public Restroom O&M Dashboard")
+st.title("NYC Modular Public Restroom Service Requests Dashboard")
 
 # Display df_311
 st.header("Modular Public Restroom Complaints")
+unique_key_search = st.text_input("Search by Unique Key", value="", help="Enter a Unique Key to filter the complaint records")
+
 if 'df_311' in globals() and isinstance(df_311, pd.DataFrame):
-    st.dataframe(df_311)
+    if unique_key_search:
+        search_key = str(unique_key_search).strip()
+        matching_rows = df_311[df_311['Unique Key'].astype(str) == search_key]
+        if not matching_rows.empty:
+            st.subheader(f"Search results for Unique Key: {search_key}")
+            st.dataframe(matching_rows)
+        else:
+            st.warning(f"No records found for Unique Key: {search_key}")
+            st.dataframe(df_311)
+    else:
+        st.dataframe(df_311)
 else:
     st.warning("df_311 not found or is not a DataFrame in the current environment.")
     st.info("Please ensure df_311 is loaded before running this app.")
@@ -67,13 +118,13 @@ else:
 if 'df_311' in globals() and isinstance(df_311, pd.DataFrame) and not df_311.empty:
     # Open Requests Section
     st.subheader("Open Requests")
-    open_requests = df_311[(df_311['status'].str.lower() == 'in progress')] if 'status' in df_311.columns else pd.DataFrame()
+    open_requests = df_311[(df_311['Status'].str.lower() == 'in progress')] if 'Status' in df_311.columns else pd.DataFrame()
     
     if not open_requests.empty:
-        open_requests_agg = open_requests.groupby(['park_name', 'Complaint Type']).size().reset_index(name='count')
-        open_requests_pivot = open_requests_agg.pivot(index='park_name', columns='Complaint Type', values='count').reset_index()
+        open_requests_agg = open_requests.groupby(['Park Name', 'Complaint Type']).size().reset_index(name='count')
+        open_requests_pivot = open_requests_agg.pivot(index='Park Name', columns='Complaint Type', values='count').reset_index()
         open_requests_pivot.columns.name = None  # Remove the column index name
-        open_requests_pivot = open_requests_pivot.rename(columns={'park_name': 'Park Location'})
+#        open_requests_pivot = open_requests_pivot.rename(columns={'Park Name': 'Park Location'})
         
         # Fill NaN with 0 and convert numeric columns to int
         numeric_cols = open_requests_pivot.select_dtypes(include=['float64', 'int64']).columns
@@ -89,25 +140,24 @@ if 'df_311' in globals() and isinstance(df_311, pd.DataFrame) and not df_311.emp
     # Check if descriptor columns exist
     if 'Complaint Type' in df_311.columns and 'Restroom Element' in df_311.columns:
         # Calculate response time for closed complaints
-        closed_complaints = df_311.dropna(subset=['closed_date']).copy()
+        closed_complaints = df_311.dropna(subset=['Closed Date']).copy()
         if not closed_complaints.empty:
-            closed_complaints['response_time_days'] = (closed_complaints['closed_date'] - closed_complaints['created_date']).dt.days
+            closed_complaints['response_time_days'] = (closed_complaints['Closed Date'] - closed_complaints['Created Date']).dt.days
             
             # Overall average response time
             avg_response_time = closed_complaints['response_time_days'].mean()
             st.metric("Average Response Time (Days)", f"{avg_response_time:.1f}")
             
             # Response time by park and year (pivoted)
-            response_by_park_year = closed_complaints.groupby(['park_name', 'year'])['response_time_days'].mean().reset_index()
-            response_pivot = response_by_park_year.pivot(index='park_name', columns='year', values='response_time_days').reset_index()
+            response_by_park_year = closed_complaints.groupby(['Park Name', 'year'])['response_time_days'].mean().reset_index()
+            response_pivot = response_by_park_year.pivot(index='Park Name', columns='year', values='response_time_days').reset_index()
             response_pivot.columns.name = None  # Remove the column index name
-            response_pivot = response_pivot.rename(columns={'park_name': 'Park Location'})
+#            response_pivot = response_pivot.rename(columns={'Park Name': 'Park Location'})
             
             # Add all-time average column
-            all_time_avg = closed_complaints.groupby('park_name')['response_time_days'].mean().reset_index()
+            all_time_avg = closed_complaints.groupby('Park Name')['response_time_days'].mean().reset_index()
             all_time_avg = all_time_avg.rename(columns={'response_time_days': 'All-Time Avg (Days)'})
-            response_pivot = response_pivot.merge(all_time_avg, left_on='Park Location', right_on='park_name', how='left')
-            response_pivot = response_pivot.drop('park_name', axis=1)
+            response_pivot = response_pivot.merge(all_time_avg, on='Park Name', how='left')
             
             response_pivot = response_pivot.round(1)  # Round to 1 decimal place
             
@@ -121,10 +171,10 @@ if 'df_311' in globals() and isinstance(df_311, pd.DataFrame) and not df_311.emp
 
         # Channel Type Analysis by Park
     if 'open_data_channel_type' in df_311.columns:
-        channel_analysis = df_311.groupby(['park_name', 'open_data_channel_type']).size().reset_index(name='count')
-        channel_pivot = channel_analysis.pivot(index='park_name', columns='open_data_channel_type', values='count').reset_index()
+        channel_analysis = df_311.groupby(['Park Name', 'open_data_channel_type']).size().reset_index(name='count')
+        channel_pivot = channel_analysis.pivot(index='Park Name', columns='open_data_channel_type', values='count').reset_index()
         channel_pivot.columns.name = None  # Remove the column index name
-        channel_pivot = channel_pivot.rename(columns={'park_name': 'Park Location'})
+   #     channel_pivot = channel_pivot.rename(columns={'Park Name': 'Park Location'})
         
         # Fill NaN with 0 and convert numeric columns to int
         numeric_cols = channel_pivot.select_dtypes(include=['float64', 'int64']).columns
@@ -135,13 +185,13 @@ if 'df_311' in globals() and isinstance(df_311, pd.DataFrame) and not df_311.emp
 
     # Park name filter
     st.header("Filter by Park")
-    available_parks = sorted(df_311['park_name'].unique())
+    available_parks = sorted(df_311['Park Name'].unique())
     selected_parks = st.multiselect("Select park(s) to view:", 
                                     available_parks, 
                                     default=available_parks)
     
     # Filter data based on selected parks
-    filtered_df_311 = df_311[df_311['park_name'].isin(selected_parks)]
+    filtered_df_311 = df_311[df_311['Park Name'].isin(selected_parks)]
     
     if filtered_df_311.empty:
         st.warning("No data available for the selected park(s)")
@@ -153,8 +203,8 @@ if 'df_311' in globals() and isinstance(df_311, pd.DataFrame) and not df_311.emp
             st.subheader("Complaints Over Time")
             # Monthly bar trend with year legend
             monthly_complaints = filtered_df_311.groupby([
-                filtered_df_311['created_date'].dt.year.rename('year'),
-                filtered_df_311['created_date'].dt.month.rename('month')
+                filtered_df_311['Created Date'].dt.year.rename('year'),
+                filtered_df_311['Created Date'].dt.month.rename('month')
             ]).size().reset_index(name='count')
             monthly_complaints['Month'] = monthly_complaints['month'].apply(lambda x: calendar.month_abbr[x])
             monthly_complaints['Year'] = monthly_complaints['year'].astype(str)
@@ -182,12 +232,13 @@ if 'df_311' in globals() and isinstance(df_311, pd.DataFrame) and not df_311.emp
                 values='count'
             ).fillna(0)
 
-            # Reorder days of week
+            # Reorder days of week and month columns
             day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
             heatmap_data = heatmap_data.reindex(day_order)
+            heatmap_data = heatmap_data.reindex(columns=sorted(heatmap_data.columns), fill_value=0)
 
-            # Create month labels
-            month_labels = [calendar.month_abbr[i] for i in range(1, 13)]
+            # Create month labels from the available data columns
+            month_labels = [calendar.month_abbr[int(m)] for m in heatmap_data.columns]
 
             # Create columns for heatmap and peak analysis
             col1, col2 = st.columns([2, 1])  # Heatmap gets more space
@@ -205,26 +256,26 @@ if 'df_311' in globals() and isinstance(df_311, pd.DataFrame) and not df_311.emp
             with col2:
                 # Add per-park analysis
                 st.markdown("**Peak Complaint Days by Park**")
-                park_day_analysis = filtered_df_311.groupby(['park_name', 'day_of_week']).size().reset_index(name='count')
-                park_day_analysis = park_day_analysis.sort_values(['park_name', 'count'], ascending=[True, False])
+                park_day_analysis = filtered_df_311.groupby(['Park Name', 'day_of_week']).size().reset_index(name='count')
+                park_day_analysis = park_day_analysis.sort_values(['Park Name', 'count'], ascending=[True, False])
 
                 # Get top day for each park
-                top_days_per_park = park_day_analysis.groupby('park_name').first().reset_index()
+                top_days_per_park = park_day_analysis.groupby('Park Name').first().reset_index()
                 top_days_per_park = top_days_per_park.rename(columns={'day_of_week': 'Peak Day', 'count': 'Complaints'})
 
                 # Add peak month analysis
-                park_month_analysis = filtered_df_311.groupby(['park_name', 'month']).size().reset_index(name='count')
-                park_month_analysis = park_month_analysis.sort_values(['park_name', 'count'], ascending=[True, False])
+                park_month_analysis = filtered_df_311.groupby(['Park Name', 'month']).size().reset_index(name='count')
+                park_month_analysis = park_month_analysis.sort_values(['Park Name', 'count'], ascending=[True, False])
 
                 # Get top month for each park
-                top_months_per_park = park_month_analysis.groupby('park_name').first().reset_index()
+                top_months_per_park = park_month_analysis.groupby('Park Name').first().reset_index()
                 top_months_per_park['Peak Month'] = top_months_per_park['month'].apply(lambda x: calendar.month_name[x])
-                top_months_per_park = top_months_per_park[['park_name', 'Peak Month']]
+                top_months_per_park = top_months_per_park[['Park Name', 'Peak Month']]
 
                 # Merge peak day and peak month data
-                peak_analysis = pd.merge(top_days_per_park, top_months_per_park, on='park_name', how='left')
+                peak_analysis = pd.merge(top_days_per_park, top_months_per_park, on='Park Name', how='left')
 
-                st.dataframe(peak_analysis[['park_name', 'Peak Day', 'Peak Month']], use_container_width=True)
+                st.dataframe(peak_analysis[['Park Name', 'Peak Day', 'Peak Month']], use_container_width=True)
 
 else:
     st.warning("No data available for visualizations")
